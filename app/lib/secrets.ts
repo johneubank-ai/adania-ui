@@ -3,6 +3,7 @@
 import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
+import { refreshTokens, verifyIdToken } from "./oauth";
 
 const exec = promisify(execFile);
 // SHARED with adania-runner — both read/write this exact Keychain entry so one sign-in serves both.
@@ -43,5 +44,28 @@ export async function readTokens(): Promise<any | null> {
     return JSON.parse(await readFile(FILE, "utf8"));
   } catch {
     return null;
+  }
+}
+
+// Return a currently-valid id_token for background callers (the scheduler), refreshing if it has expired
+// and persisting the refreshed session back to the shared keychain. Returns null if there's no session
+// or the refresh fails (caller records the scheduled run as failed and the member signs in again).
+export async function ensureFreshIdToken(): Promise<string | null> {
+  const tok = await readTokens();
+  if (!tok?.id_token) return null;
+  try {
+    await verifyIdToken(tok.id_token);
+    return tok.id_token; // still valid
+  } catch {
+    if (!tok.refresh_token) return null;
+    try {
+      const refreshed = await refreshTokens(tok.refresh_token);
+      const merged = { ...tok, ...refreshed };
+      await verifyIdToken(merged.id_token);
+      await storeTokens(merged);
+      return merged.id_token;
+    } catch {
+      return null;
+    }
   }
 }
