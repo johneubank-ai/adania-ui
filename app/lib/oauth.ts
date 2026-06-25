@@ -40,6 +40,23 @@ export async function exchangeCode(code: string, verifier: string): Promise<any>
   return await r.json();
 }
 
+// Exchange a refresh_token for a fresh id_token (Cognito returns no new refresh_token). Mirrors the
+// adania-runner session refresh so the long-running UI scheduler can keep firing past the ~1h id_token TTL.
+export async function refreshTokens(refreshToken: string): Promise<any> {
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: COGNITO.clientId,
+    refresh_token: refreshToken,
+  });
+  const r = await fetch(`https://${COGNITO.domain}/oauth2/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!r.ok) throw new Error(`refresh ${r.status}`);
+  return await r.json(); // { id_token, access_token, expires_in }
+}
+
 // JWKS RS256 verification of the Cognito id_token (replaces decode-only). Fetches the pool's JWKS, matches
 // kid, verifies the signature, and checks iss + aud + exp. Throws on any failure. Returns the claims.
 let _jwks: { keys: any[]; at: number } | null = null;
