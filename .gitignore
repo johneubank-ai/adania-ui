@@ -1,0 +1,16 @@
+# deps / build
+node_modules/
+.next/
+.pnpm-store/
+dist/
+*.app/
+next-env.d.ts
+*.tsbuildinfo
+# secrets / local
+.env
+.env.*
+.adania/
+session.json
+tokens.json
+# os
+.DS_Store
