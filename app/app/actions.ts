@@ -2,7 +2,7 @@
 import { authorizeUrl, genPkce } from "../lib/oauth";
 import { openBrowser } from "../lib/agent-node";
 import { ADANIA_API } from "../lib/config";
-import { readTokens } from "../lib/secrets";
+import { ensureFreshIdToken } from "../lib/secrets";
 import { patchState } from "../lib/store";
 
 export async function signIn() {
@@ -16,23 +16,47 @@ export async function signOut() {
   await patchState({ login: "signed out", email: "—", pkceVerifier: "" });
 }
 
-// Web-chat send (v1): fire-and-forget a text message to a Desktop-app bot. The backend enqueues it for
-// the bot's assignee runner (npx adania-runner). We do NOT wait for or display the reply yet.
-export async function sendChat(botId: string, message: string): Promise<{ ok: boolean; note?: string }> {
+// Web-chat send: post a text message to a Desktop-app bot. The backend enqueues it for the bot's assignee
+// runner (npx adania-runner) and returns a turnId the UI then polls (getChatReply) for the agent's reply.
+export async function sendChat(
+  botId: string,
+  message: string,
+): Promise<{ ok: boolean; note?: string; turnId?: string }> {
   const text = message.trim();
   if (!text) return { ok: false, note: "empty" };
-  const tok = await readTokens();
-  if (!tok?.id_token) return { ok: false, note: "not signed in" };
+  const idToken = await ensureFreshIdToken();
+  if (!idToken) return { ok: false, note: "not signed in" };
   try {
     const r = await fetch(`${ADANIA_API}/api/chat/${botId}`, {
       method: "POST",
-      headers: { authorization: `Bearer ${tok.id_token}`, "content-type": "application/json" },
+      headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
       body: JSON.stringify({ message: text }),
     });
     if (!r.ok) return { ok: false, note: `send ${r.status}` };
-    const j = (await r.json().catch(() => ({}))) as { runnerOffline?: boolean };
-    return { ok: true, note: j.runnerOffline ? "sent (your runner appears offline — start `npx adania-runner`)" : "sent" };
+    const j = (await r.json().catch(() => ({}))) as { turnId?: string; runnerOffline?: boolean };
+    return {
+      ok: true,
+      turnId: j.turnId,
+      note: j.runnerOffline ? "your runner appears offline — start `npx adania-runner`" : undefined,
+    };
   } catch (e) {
     return { ok: false, note: (e as Error).message };
+  }
+}
+
+// Read one webchat turn's reply (mirrors the scheduler's pollReply). The chat UI calls this repeatedly after
+// sendChat until the status is terminal: "done" (reply ready) or "failed"/"missed" (runner never answered).
+export async function getChatReply(turnId: string): Promise<{ status?: string; reply?: string }> {
+  const idToken = await ensureFreshIdToken();
+  if (!idToken) return {};
+  try {
+    const r = await fetch(`${ADANIA_API}/api/chat/turn/${turnId}`, {
+      headers: { authorization: `Bearer ${idToken}` },
+      cache: "no-store",
+    });
+    if (!r.ok) return {};
+    return (await r.json()) as { status?: string; reply?: string };
+  } catch {
+    return {};
   }
 }

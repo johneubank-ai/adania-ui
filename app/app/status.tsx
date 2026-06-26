@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { sendChat } from "./actions";
+import { getChatReply, sendChat } from "./actions";
 import { deleteSchedule, runScheduleNow, toggleSchedule } from "./schedule-actions";
 import ScheduleForm from "./schedule-form";
 import { describeCron, nextRun } from "../lib/cron";
@@ -77,21 +77,74 @@ export default function Status() {
   );
 }
 
+type ChatMsg = { role: "you" | "agent"; text: string };
+
 function ChatBox({ botId, name }: { botId: string; name: string }) {
   const [text, setText] = useState("");
+  const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
   const send = async () => {
-    if (!text.trim() || busy) return;
+    const t = text.trim();
+    if (!t || busy) return;
     setBusy(true);
-    const r = await sendChat(botId, text);
-    setNote(r.ok ? (r.note ?? "sent") : `error: ${r.note ?? "failed"}`);
-    if (r.ok) setText("");
+    setNote(null);
+    setMsgs((m) => [...m, { role: "you", text: t }]);
+    setText("");
+
+    const r = await sendChat(botId, t);
+    if (!r.ok || !r.turnId) {
+      setNote(`error: ${r.note ?? "failed"}`);
+      setBusy(false);
+      return;
+    }
+    if (r.note) setNote(r.note); // e.g. the runner-offline hint
+
+    // Poll for the agent's reply — the assignee runner answers over the reverse-WS (≤90s, like the backend).
+    const deadline = Date.now() + 95_000;
+    let answered = false;
+    while (Date.now() < deadline && !answered) {
+      await new Promise((res) => setTimeout(res, 1800));
+      const reply = await getChatReply(r.turnId);
+      if (reply.status === "done") {
+        setMsgs((m) => [...m, { role: "agent", text: reply.reply || "(no reply)" }]);
+        answered = true;
+      } else if (reply.status === "failed" || reply.status === "missed") {
+        setNote("the agent didn’t reply — is `npx adania-runner` running? (filed in missed events)");
+        answered = true;
+      }
+    }
+    if (!answered) setNote("no reply yet (timed out) — is `npx adania-runner` running?");
     setBusy(false);
   };
+
   return (
     <div style={{ border: "1px solid #1d2742", borderRadius: 10, padding: 14, marginBottom: 12 }}>
       <div style={{ fontWeight: 600, marginBottom: 8 }}>{name}</div>
+      {msgs.length > 0 && (
+        <div style={{ display: "grid", gap: 6, marginBottom: 10, maxHeight: 320, overflowY: "auto" }}>
+          {msgs.map((m, i) => (
+            <div key={i} style={{ justifySelf: m.role === "you" ? "end" : "start", maxWidth: "85%" }}>
+              <div
+                style={{
+                  padding: "7px 11px",
+                  borderRadius: 10,
+                  fontSize: 14,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  color: "#e7ecff",
+                  background: m.role === "you" ? "#1f3a5f" : "#141d36",
+                  border: m.role === "you" ? "1px solid #2b5a8c" : "1px solid #1d2742",
+                }}
+              >
+                {m.text}
+              </div>
+            </div>
+          ))}
+          {busy && <div style={{ justifySelf: "start", fontSize: 12, color: "#7f8db0" }}>agent is replying…</div>}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8 }}>
         <input
           value={text}
@@ -108,8 +161,7 @@ function ChatBox({ botId, name }: { botId: string; name: string }) {
           {busy ? "…" : "Send"}
         </button>
       </div>
-      {note && <div style={{ marginTop: 8, fontSize: 12, color: note.startsWith("error") ? "#f87171" : "#4ade80" }}>{note}</div>}
-      <div style={{ marginTop: 6, fontSize: 11, color: "#6b7794" }}>Sent to your running agent (replies aren’t shown here yet).</div>
+      {note && <div style={{ marginTop: 8, fontSize: 12, color: note.startsWith("error") ? "#f87171" : "#fbbf24" }}>{note}</div>}
       <Schedules botId={botId} botName={name} />
     </div>
   );
