@@ -39,23 +39,8 @@ export default function Status() {
 
   return (
     <div>
-      <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 14, marginTop: 16 }}>
-        <tbody>
-          {([["Login", s.login], ["Account", s.email], ["Agents", s.status]] as [string, string | undefined][]).map(([k, v]) => {
-            const green = k === "Login" && v === "signed in";
-            return (
-              <tr key={k}>
-                <td style={{ padding: "7px 10px", borderBottom: "1px solid #1d2742", color: "#9fb0d8", whiteSpace: "nowrap" }}>{k}</td>
-                <td style={{ padding: "7px 10px", borderBottom: "1px solid #1d2742", fontFamily: "ui-monospace,monospace", color: green ? "#4ade80" : undefined }}>{String(v ?? "…")}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-
       {orgs.length > 0 && (
         <section style={{ marginTop: 22 }}>
-          <h3 style={{ marginBottom: 8 }}>Your organizations</h3>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {orgs.map((o) => (
               <button

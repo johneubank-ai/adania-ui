@@ -6,13 +6,6 @@ export const dynamic = "force-dynamic";
 export default function Page() {
   return (
     <main style={{ maxWidth: 680, margin: "0 auto", padding: 28 }}>
-      <h1 style={{ marginBottom: 4 }}>
-        Adania Client <span style={{ fontSize: 13, color: "#7f8db0" }}>next.js · live</span>
-      </h1>
-      <p style={{ color: "#9fb0d8", marginTop: 0 }}>
-        Sign in, see your organizations + web-chat agents, and message them. Your agents run via
-        <code> npx adania-runner</code> (a separate process that shares this sign-in).
-      </p>
       <div style={{ display: "flex", gap: 10 }}>
         <form action={signIn}>
           <button style={{ padding: "9px 16px", borderRadius: 8, border: "1px solid #2b3a64", background: "#16203c", color: "#e7ecff", cursor: "pointer" }}>
