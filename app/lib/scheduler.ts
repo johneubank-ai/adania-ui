@@ -19,16 +19,23 @@ import {
 } from "./schedules";
 
 const TICK_MS = 30_000; // 2 ticks/minute → every target minute is hit; the minute-guard dedupes
-const POLL_INTERVAL_MS = 2_000;
-const POLL_TIMEOUT_MS = 90_000; // mirrors backend waitForReply
+// How long we poll a turn for the runner's reply before recording it as timed out. Tracks the backend's
+// RELAY_REPLY_TIMEOUT_MS (95 min = adania-runner's 90-min hard cap, ADANIA_MAX_RUNTIME_MS, + 5-min grace) so
+// the runner always wins the race and we capture its real reply (a result, or its own ⚠️ runtime-limit
+// message) instead of giving up first. The poll RETURNS THE MOMENT the reply lands, so a normal fast turn is
+// unaffected — only a genuinely long turn (a cadenced multi-message job, or one waiting on background work)
+// waits longer. Override via ADANIA_REPLY_TIMEOUT_MS.
+const POLL_TIMEOUT_MS = Number(process.env.ADANIA_REPLY_TIMEOUT_MS ?? 95 * 60_000);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Poll the turn until the assignee runner answers (status=done) or we give up. Updates the run in place.
 async function pollReply(scheduleId: string, runId: string, turnId: string, idToken: string): Promise<void> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
+  let pollMs = 1_200; // snappy for the common fast turn; backs off (→5s) so a long wait doesn't hammer the backend
   while (Date.now() < deadline) {
-    await sleep(POLL_INTERVAL_MS);
+    await sleep(pollMs);
+    pollMs = Math.min(pollMs * 1.5, 5_000);
     try {
       const r = await fetch(`${ADANIA_API}/api/chat/turn/${turnId}`, {
         headers: { authorization: `Bearer ${idToken}` },
