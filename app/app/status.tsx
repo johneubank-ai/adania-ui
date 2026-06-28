@@ -101,11 +101,18 @@ function ChatBox({ botId, name }: { botId: string; name: string }) {
     }
     if (r.note) setNote(r.note); // e.g. the runner-offline hint
 
-    // Poll for the agent's reply — the assignee runner answers over the reverse-WS (≤90s, like the backend).
-    const deadline = Date.now() + 95_000;
+    // Poll for the agent's reply over the reverse-WS. Wait as long as the runner can run — the backend's
+    // RELAY_REPLY_TIMEOUT_MS (95 min = adania-runner's 90-min hard cap + 5-min grace) — so a long turn (a job
+    // that waits on background work, a cadenced multi-message run) isn't cut off as a false timeout. It resolves
+    // the moment the reply lands, so a normal fast turn is unaffected; the interval backs off (→5s) so a long
+    // wait doesn't hammer the backend. (This is a client component; the server-side scheduler honors the
+    // ADANIA_REPLY_TIMEOUT_MS override.)
+    const deadline = Date.now() + 95 * 60_000;
+    let pollMs = 1_800;
     let answered = false;
     while (Date.now() < deadline && !answered) {
-      await new Promise((res) => setTimeout(res, 1800));
+      await new Promise((res) => setTimeout(res, pollMs));
+      pollMs = Math.min(pollMs * 1.5, 5_000);
       const reply = await getChatReply(r.turnId);
       if (reply.status === "done") {
         setMsgs((m) => [...m, { role: "agent", text: reply.reply || "(no reply)" }]);
